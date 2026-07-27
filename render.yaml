@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: rg-social-planner
+    runtime: node
+    plan: free # zero-cost requirement (section 1a); do not upgrade without an explicit owner decision
+    region: ohio
+    buildCommand: npm install
+    startCommand: node scripts/run-migrations.js && npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.20.2
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        sync: false
+      - key: SESSION_COOKIE_NAME
+        value: rg_session
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      - key: CONFIG_ENCRYPTION_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STORAGE_BUCKET_MEDIA
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
