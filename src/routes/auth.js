@@ -112,18 +112,17 @@ export function createAuthRouter() {
 
       const appUrl = process.env.APP_URL || 'http://localhost:3000';
       // The account (org, membership, brand settings, pillars) is already
-      // committed at this point. A flaky mail provider must not turn a
+      // committed at this point. Not awaited: a slow or hung mail server
+      // must never block this response, and a flaky send must not turn a
       // successful signup into a dead end the user can never retry (the
       // account already exists, so onboarding can't run again either).
-      try {
-        await sendMail({
-          to: user.email,
-          subject: 'Verify your RG Bookkeeping Social Planner account',
-          text: `Welcome! Verify your email: ${appUrl}/api/auth/verify?token=${verifyToken}`,
-        });
-      } catch (mailErr) {
+      sendMail({
+        to: user.email,
+        subject: 'Verify your RG Bookkeeping Social Planner account',
+        text: `Welcome! Verify your email: ${appUrl}/api/auth/verify?token=${verifyToken}`,
+      }).catch((mailErr) => {
         console.error('[onboard] verification email failed to send:', mailErr.message);
-      }
+      });
 
       const session = await createSession(user.id);
       setSessionCookies(res, session);
@@ -217,18 +216,18 @@ export function createAuthRouter() {
             [sha256(resetToken), expiresAt, user.id]
           );
           const appUrl = process.env.APP_URL || 'http://localhost:3000';
-          try {
-            await sendMail({
-              to: user.email,
-              subject: 'Reset your RG Bookkeeping Social Planner password',
-              text: `Reset your password: ${appUrl}/reset-password?token=${resetToken} (expires in 1 hour)`,
-            });
-          } catch (mailErr) {
-            // Must not throw here: a 500 only ever happens when the email
-            // exists (the branch above), which would leak exactly the
-            // enumeration signal this endpoint's uniform 200 is meant to hide.
+          // Not awaited: a slow/hung mail server must never block this
+          // response. Also must never throw into the outer try/catch below —
+          // a 500 only ever happens when the email exists (this branch),
+          // which would leak exactly the enumeration signal this endpoint's
+          // uniform 200 is meant to hide.
+          sendMail({
+            to: user.email,
+            subject: 'Reset your RG Bookkeeping Social Planner password',
+            text: `Reset your password: ${appUrl}/reset-password?token=${resetToken} (expires in 1 hour)`,
+          }).catch((mailErr) => {
             console.error('[request-password-reset] email failed to send:', mailErr.message);
-          }
+          });
         }
 
         res.json({ ok: true, message: 'If that email exists, a reset link has been sent.' });

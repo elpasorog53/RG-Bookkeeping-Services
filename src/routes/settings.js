@@ -174,19 +174,17 @@ router.post('/users/invite', requireOwner, inviteRateLimit, validateBody(inviteS
     ]);
 
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
-    // The user + org_members rows are already committed. A flaky mail
-    // provider must not 500 this request: the invite has already happened,
-    // and failing here would also skip the audit write below and leave the
-    // Owner unable to tell the invitee the link manually.
-    try {
-      await sendMail({
-        to: newUser.email,
-        subject: 'You have been invited to RG Bookkeeping Social Planner',
-        text: `${req.user.displayName} invited you as ${role.toLowerCase()}. Set your password: ${appUrl}/reset-password?token=${inviteToken} (link expires in 7 days)`,
-      });
-    } catch (mailErr) {
+    // Not awaited: the user + org_members rows are already committed, and a
+    // slow/hung mail server must never block this response or the audit
+    // write below. A failed send is logged, not thrown -- the invite has
+    // already happened either way.
+    sendMail({
+      to: newUser.email,
+      subject: 'You have been invited to RG Bookkeeping Social Planner',
+      text: `${req.user.displayName} invited you as ${role.toLowerCase()}. Set your password: ${appUrl}/reset-password?token=${inviteToken} (link expires in 7 days)`,
+    }).catch((mailErr) => {
       console.error('[invite] email failed to send:', mailErr.message);
-    }
+    });
 
     await writeAudit(getPool(), {
       orgId: req.orgId,

@@ -17,6 +17,11 @@ function getTransporter() {
       port: Number(process.env.SMTP_PORT) || 587,
       secure: false,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // nodemailer's own defaults run into minutes; a slow/unreachable mail
+      // host must fail fast rather than hang the request that triggered it.
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     });
   }
   return transporter;
