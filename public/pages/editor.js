@@ -482,6 +482,66 @@ export async function render(root, { params, session }) {
     `;
   }
 
+  function formatRepeatDate(item) {
+    return item.planned_date || (item.published_at ? item.published_at.slice(0, 10) : item.created_at.slice(0, 10));
+  }
+
+  function renderRepetitionResults({ pillarRepeats, similarCaptions }) {
+    const box = document.getElementById('repetition-results');
+    if (!box) return;
+    if (pillarRepeats.length === 0 && similarCaptions.length === 0) {
+      box.innerHTML = '<p class="empty-state">No repeats found.</p>';
+      return;
+    }
+    const pillarHtml = pillarRepeats
+      .map(
+        (p) => `
+      <div class="notice">Same pillar used ${escapeHtml(formatRepeatDate(p))}: <a href="#/editor/${p.id}">${escapeHtml(p.title)}</a></div>
+    `
+      )
+      .join('');
+    const captionHtml = similarCaptions
+      .map(
+        (p) => `
+      <div class="notice">${Math.round(p.similarity * 100)}% similar to <a href="#/editor/${p.id}">${escapeHtml(p.title)}</a> (${escapeHtml(formatRepeatDate(p))})</div>
+    `
+      )
+      .join('');
+    box.innerHTML = pillarHtml + captionHtml;
+  }
+
+  async function runRepetitionCheck() {
+    const box = document.getElementById('repetition-results');
+    if (!box) return;
+    const pillarId = fieldValue('f-pillar') || null;
+    const captionMain = fieldValue('f-caption') || null;
+    if (!pillarId && !captionMain) {
+      box.innerHTML = '<p class="empty-state">Add a pillar or caption first.</p>';
+      return;
+    }
+    box.innerHTML = '<p class="empty-state">Checking&hellip;</p>';
+    try {
+      const result = await api('/api/posts/repetition-check', {
+        method: 'POST',
+        body: { post_id: post.id || undefined, pillar_id: pillarId, caption_main: captionMain },
+      });
+      renderRepetitionResults(result);
+    } catch {
+      box.innerHTML = '<p class="empty-state">Could not check right now.</p>';
+    }
+  }
+
+  function repetitionCheckCard() {
+    return `
+      <div class="card">
+        <strong>Repetition check</strong>
+        <p class="empty-state">Flags recent posts that share this pillar or read similarly &mdash; a nudge, not a block.</p>
+        <div id="repetition-results"><p class="empty-state">Checking&hellip;</p></div>
+        <button type="button" class="btn secondary" id="btn-check-repeats">Check again</button>
+      </div>
+    `;
+  }
+
   function aiAssistCard() {
     if (!aiConfigured) {
       return `
@@ -618,6 +678,8 @@ export async function render(root, { params, session }) {
           </div>
         </div>
 
+        ${locked ? '' : repetitionCheckCard()}
+
         ${locked ? '' : aiAssistCard()}
 
         <div class="card">
@@ -712,6 +774,9 @@ export async function render(root, { params, session }) {
     });
 
     document.getElementById('btn-save').addEventListener('click', () => save());
+
+    const checkRepeatsBtn = document.getElementById('btn-check-repeats');
+    if (checkRepeatsBtn) checkRepeatsBtn.addEventListener('click', () => runRepetitionCheck());
 
     const templatePicker = document.getElementById('template-picker');
     if (templatePicker) {
@@ -901,4 +966,8 @@ export async function render(root, { params, session }) {
   });
 
   renderAll();
+
+  if (post.status !== 'published' && (post.pillar_id || (post.caption_main && post.caption_main.trim()))) {
+    runRepetitionCheck();
+  }
 }

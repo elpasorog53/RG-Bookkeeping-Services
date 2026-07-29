@@ -11,6 +11,11 @@ import {
   TransitionError,
 } from '../services/post-service.js';
 import { createSignedUrl } from '../lib/storage.js';
+import { captionSimilarity } from '../lib/similarity.js';
+
+const PILLAR_REPEAT_WINDOW_DAYS = 14;
+const SIMILAR_CAPTION_WINDOW_DAYS = 90;
+const SIMILARITY_THRESHOLD = 0.5;
 
 const JSON_COLUMNS = new Set(['caption_overrides', 'published_urls']);
 
@@ -66,6 +71,12 @@ const transitionSchema = z.object({
 
 const copyLogSchema = z.object({
   platform: z.string().min(1).max(50),
+});
+
+const repetitionCheckSchema = z.object({
+  post_id: z.string().uuid().optional().nullable(),
+  pillar_id: z.string().uuid().optional().nullable(),
+  caption_main: z.string().max(10000).optional().nullable(),
 });
 
 const router = Router();
@@ -153,6 +164,61 @@ router.get('/evergreen/due', async (req, res, next) => {
       [req.orgId]
     );
     res.json({ posts: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Topic-repetition warnings (spec's Phase 2 order, final step): informational
+// only, never blocks a save/transition -- distinct from evergreen reuse
+// (deliberate, scheduled repetition) in that this catches *accidental*
+// repeats, e.g. forgetting a pillar/topic was already covered recently.
+router.post('/repetition-check', validateBody(repetitionCheckSchema), async (req, res, next) => {
+  try {
+    const { post_id: postId, pillar_id: pillarId, caption_main: captionMain } = req.body;
+
+    let pillarRepeats = [];
+    if (pillarId) {
+      const { rows } = await query(
+        `SELECT id, title, planned_date, published_at, created_at FROM posts
+         WHERE org_id = $1 AND pillar_id = $2 AND archived_at IS NULL
+           AND ($3::uuid IS NULL OR id != $3)
+           AND COALESCE(planned_date, published_at::date, created_at::date)
+               >= (now() - ($4 || ' days')::interval)::date
+         ORDER BY COALESCE(planned_date, published_at::date, created_at::date) DESC
+         LIMIT 5`,
+        [req.orgId, pillarId, postId || null, PILLAR_REPEAT_WINDOW_DAYS]
+      );
+      pillarRepeats = rows;
+    }
+
+    let similarCaptions = [];
+    if (captionMain && captionMain.trim().length > 0) {
+      const { rows } = await query(
+        `SELECT id, title, caption_main, planned_date, published_at, created_at FROM posts
+         WHERE org_id = $1 AND archived_at IS NULL AND caption_main IS NOT NULL
+           AND ($2::uuid IS NULL OR id != $2)
+           AND COALESCE(planned_date, published_at::date, created_at::date)
+               >= (now() - ($3 || ' days')::interval)::date
+         LIMIT 200`,
+        [req.orgId, postId || null, SIMILAR_CAPTION_WINDOW_DAYS]
+      );
+      similarCaptions = rows
+        .map((r) => ({ ...r, similarity: captionSimilarity(captionMain, r.caption_main) }))
+        .filter((r) => r.similarity >= SIMILARITY_THRESHOLD)
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, 3)
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          planned_date: r.planned_date,
+          published_at: r.published_at,
+          created_at: r.created_at,
+          similarity: r.similarity,
+        }));
+    }
+
+    res.json({ pillarRepeats, similarCaptions });
   } catch (err) {
     next(err);
   }
