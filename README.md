@@ -6,9 +6,10 @@ manual posting across Facebook, Instagram, LinkedIn, and Google Business
 Profile. No direct platform publishing in Phase 1 — the app makes
 copy-and-paste posting fast and records what actually went out.
 
-Built from `RG-Bookkeeping-Social-Media-System-Plan.md`. See
-[BLOCKERS.md](BLOCKERS.md) for what's still unverified pending real
-credentials (Supabase project, Supabase Storage bucket, SMTP account).
+Built from `RG-Bookkeeping-Social-Media-System-Plan.md`. Live in production
+at `https://rg-social-planner.onrender.com`. See [BLOCKERS.md](BLOCKERS.md)
+for the real-infrastructure verification history (Supabase project,
+Supabase Storage bucket, SMTP account) and deployment notes.
 
 ## Stack
 
@@ -44,23 +45,29 @@ check against genuine Postgres/Supabase before deploying.
 
 ## Deployment (Render)
 
-1. Create two Supabase projects (dev, prod) — see BLOCKERS.md for what's
-   still needed there. Create a **private** Storage bucket for media.
-2. Create a Render Web Service from this repo, **free plan**. Zero
-   monthly cost is a hard requirement — do not upgrade the plan without
-   an explicit decision from the owner.
+This is a live runbook — it reflects how the app is actually deployed
+today, not a forward-looking checklist. Follow it as-is to redeploy, or as
+a reference if setting up a genuinely separate environment later.
+
+1. One Supabase project provides both the Postgres database and Storage
+   (a **private** bucket for media). See BLOCKERS.md for why there's only
+   one project rather than a separate dev/prod split.
+2. A Render Web Service runs this repo on the **free plan**. Zero monthly
+   cost is a hard requirement — do not upgrade the plan without an
+   explicit decision from the owner.
 3. Start command: `node scripts/run-migrations.js && npm start` (migrations
-   run automatically before every boot).
-4. Set every variable from `.env.example` in the Render dashboard
-   (`sync: false` — never commit real values). Set `DB_SSL=true` and
-   `APP_URL` to the assigned `onrender.com` URL.
-5. First deploy runs migrations, then serves the onboarding form.
-6. Verify: signup email arrives, password reset works, an upload produces
-   a signed URL that expires, a second browser without a session gets 401s
-   on `/api/*`, Render logs show no secrets.
-7. Confirm the free-tier cold-start behavior: leave the app idle past
-   Render's spin-down window, then load it and confirm the "waking up"
-   screen appears and the app recovers within about a minute.
+   run automatically before every boot, and are additive/idempotent, so
+   this is safe on every deploy).
+4. Every variable from `.env.example` is set in the Render dashboard
+   (`sync: false` — never commit real values), with `DB_SSL=true` and
+   `APP_URL` set to the app's real `onrender.com` URL.
+5. Auto-deploy is on: every push to `main` runs migrations, then serves the
+   updated app.
+6. Verified end to end: signup email arrives, password reset works, an
+   upload produces a signed URL that expires, a second browser without a
+   session gets 401s on `/api/*`, Render logs show no secrets.
+7. Free-tier cold starts are expected: after an idle spell, the first load
+   shows a "waking up" screen and recovers within about a minute.
 
 ## Backup runbook
 
@@ -88,7 +95,7 @@ src/
   routes/              one file per domain (auth, posts, pillars, media, ...)
   services/            post-service.js: the status transition matrix
   lib/                 db, auth-middleware, storage, audit, mailer, rate-limit
-  migrations/          001_init.sql (additive only — never edit an applied one)
+  migrations/          001_init.sql, 002-004 (additive only — never edit an applied one)
 public/
   index.html  styles.css  app.js (router + shared helpers only)
   pages/               one feature per file (dashboard, calendar, editor, ...)
@@ -100,11 +107,23 @@ scripts/
 
 ## Status
 
-All of Phase 1 (spec section 32) is built: auth + onboarding, org scoping,
-audit logging, brand settings, content pillars, the full post status
-workflow, content list with filters, the post editor (autosave, per-platform
+Live in production, Phase 1 and Phase 2 both complete.
+
+**Phase 1** (spec section 32): auth + onboarding, org scoping, audit
+logging, brand settings, content pillars, the full post status workflow,
+content list with filters, the post editor (autosave, per-platform
 character counts, copy-to-clipboard, mark-published), media upload, the
-calendar (month/list views, drag-and-drop rescheduling), the dashboard,
-CSV/zip exports, and the Settings/audit UI. See BLOCKERS.md for the handful
-of things that need real Supabase/SMTP credentials to verify end to end
-rather than against local mocks.
+calendar (month/list views, drag-and-drop rescheduling, an .ics
+subscription feed), the dashboard, CSV/zip exports, and the Settings/audit
+UI.
+
+**Phase 2**: reusable templates, evergreen-post resurfacing (a dashboard
+card for content due to be reused), recurrence rules (auto-generating
+draft posts from a template on a schedule, including a date-verification
+flag for content tied to shifting deadlines), an AI drafting suite
+(draft/rewrite/variants via a user-supplied Anthropic key, with a
+brand-voice-and-safety system prompt), monthly content planning (a
+cadence-vs-target view per week, plus pillar-mix balance), and
+topic-repetition warnings (flags accidental reuse of a pillar or a
+near-duplicate caption). See [USER_GUIDE.md](USER_GUIDE.md) for how to use
+all of it, and BLOCKERS.md for infrastructure verification history.
