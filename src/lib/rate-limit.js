@@ -28,6 +28,10 @@ export function ipKey(req) {
   return req.ip;
 }
 
+export function userKey(req) {
+  return req.user.id;
+}
+
 // Test-only: clears all buckets so integration tests don't trip a shared
 // limiter just because many tests run against the same loopback IP.
 export function __resetRateLimits() {

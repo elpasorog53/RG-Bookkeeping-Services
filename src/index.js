@@ -12,6 +12,7 @@ import meRouter from './routes/me.js';
 import mediaRouter from './routes/media.js';
 import exportsRouter from './routes/exports.js';
 import auditRouter from './routes/audit.js';
+import aiRouter from './routes/ai.js';
 import calendarFeedRouter from './routes/calendar-feed.js';
 import { requireAuth, requireCsrf, requireOrg } from './lib/auth-middleware.js';
 
@@ -49,6 +50,7 @@ app.use('/api/me', meRouter);
 app.use('/api/media', mediaRouter);
 app.use('/api/exports', exportsRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/ai', aiRouter);
 
 // No build step means no cache-busted filenames, so every static asset must
 // force revalidation (ETag/Last-Modified conditional GET) on every request.

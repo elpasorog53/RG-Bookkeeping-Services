@@ -51,11 +51,13 @@ export async function render(root, { params, session }) {
   const postId = isNew ? null : params[0];
   const isOwner = session.role === 'OWNER';
 
-  const [pillarsData, platformsData] = await Promise.all([
+  const [pillarsData, platformsData, aiConfigData] = await Promise.all([
     api('/api/pillars'),
     api('/api/settings/platforms'),
+    api('/api/settings/ai-config'),
   ]);
   const platformsByKey = new Map(platformsData.platforms.map((p) => [p.key, p]));
+  const aiConfigured = aiConfigData.configured;
 
   let post = isNew
     ? {
@@ -340,6 +342,169 @@ export async function render(root, { params, session }) {
     });
   }
 
+  function setAiBusy(busy) {
+    root.querySelectorAll('.ai-btn').forEach((btn) => {
+      btn.disabled = busy;
+    });
+  }
+
+  function selectedPlatforms() {
+    return Array.from(document.querySelectorAll('.platform-check:checked')).map((el) => el.value);
+  }
+
+  function renderAiResults(items) {
+    const box = document.getElementById('ai-results');
+    if (!box) return;
+    box.innerHTML = items
+      .map(
+        (item, i) => `
+      <div class="card ai-preview">
+        ${
+          item.needsReview
+            ? `<p class="notice">Flagged for review${item.reviewReason ? `: ${escapeHtml(item.reviewReason)}` : ''}</p>`
+            : ''
+        }
+        <p>${escapeHtml(item.caption)}</p>
+        ${item.hashtags ? `<p class="ai-preview-meta">${escapeHtml(item.hashtags)}</p>` : ''}
+        ${item.cta ? `<p class="ai-preview-meta">CTA: ${escapeHtml(item.cta)}</p>` : ''}
+        <button type="button" class="btn secondary ai-use-btn" data-index="${i}">Use this</button>
+      </div>
+    `
+      )
+      .join('');
+
+    box.querySelectorAll('.ai-use-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const item = items[Number(btn.dataset.index)];
+        document.getElementById('f-caption').value = item.caption;
+        if (item.hashtags) document.getElementById('f-hashtags').value = item.hashtags;
+        if (item.cta) document.getElementById('f-cta').value = item.cta;
+        if (item.needsReview) {
+          const cb = document.getElementById('f-needs-review');
+          if (cb) cb.checked = true;
+        }
+        if (item.disclaimerRequired) {
+          const cb = document.getElementById('f-disclaimer');
+          if (cb) cb.checked = true;
+        }
+        updateCharCounts();
+        scheduleAutosave();
+        if (item.generationId) {
+          api(`/api/ai/generations/${item.generationId}/accept`, { method: 'POST' }).catch(() => {});
+        }
+        box.innerHTML = '';
+        toast(item.needsReview ? 'Inserted — flagged for review' : 'Inserted into caption');
+      });
+    });
+  }
+
+  async function doAiDraft() {
+    const topic = fieldValue('ai-topic');
+    if (!topic || !topic.trim()) {
+      toast('Enter a topic first', { isError: true });
+      return;
+    }
+    const platforms = selectedPlatforms();
+    if (platforms.length === 0) {
+      toast('Select at least one platform first', { isError: true });
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const result = await api('/api/ai/draft', {
+        method: 'POST',
+        body: { topic: topic.trim(), pillar_id: fieldValue('f-pillar') || null, platforms, post_id: post.id || undefined },
+      });
+      renderAiResults([{ ...result.draft, generationId: result.generationId }]);
+    } catch (err) {
+      toast(err.message, { isError: true });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function doAiRewrite(instructionOverride) {
+    const caption = fieldValue('f-caption');
+    if (!caption || !caption.trim()) {
+      toast('Write (or generate) a caption first', { isError: true });
+      return;
+    }
+    const instruction = instructionOverride || fieldValue('ai-instruction');
+    if (!instruction || !instruction.trim()) {
+      toast('Enter an instruction, or pick a quick option', { isError: true });
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const result = await api('/api/ai/rewrite', {
+        method: 'POST',
+        body: { caption, instruction: instruction.trim(), platforms: selectedPlatforms(), post_id: post.id || undefined },
+      });
+      renderAiResults([{ ...result.draft, generationId: result.generationId }]);
+    } catch (err) {
+      toast(err.message, { isError: true });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function doAiVariants() {
+    const caption = fieldValue('f-caption');
+    if (!caption || !caption.trim()) {
+      toast('Write (or generate) a caption first', { isError: true });
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const result = await api('/api/ai/variants', {
+        method: 'POST',
+        body: { caption, count: 3, platforms: selectedPlatforms(), post_id: post.id || undefined },
+      });
+      renderAiResults(result.variants.map((v) => ({ ...v, generationId: result.generationId })));
+    } catch (err) {
+      toast(err.message, { isError: true });
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  function aiAssistCard() {
+    if (!aiConfigured) {
+      return `
+        <div class="card">
+          <strong>AI Assist</strong>
+          <p class="empty-state">AI drafting isn't configured yet. Add an API key in <a href="#/settings">Settings &rarr; AI</a>.</p>
+        </div>
+      `;
+    }
+    return `
+      <div class="card">
+        <strong>AI Assist</strong>
+        <div class="ai-assist-section">
+          <label for="ai-topic">Draft a new post from a topic</label>
+          <textarea id="ai-topic" rows="2" placeholder="e.g. Reminder that quarterly estimated taxes are coming up"></textarea>
+          <button type="button" class="btn secondary ai-btn" id="btn-ai-draft">Generate draft</button>
+        </div>
+        <div class="ai-assist-section">
+          <label>Rewrite the current caption</label>
+          <div class="ai-quick-picks">
+            <button type="button" class="btn secondary ai-btn ai-quick-pick" data-instruction="Make it shorter">Shorter</button>
+            <button type="button" class="btn secondary ai-btn ai-quick-pick" data-instruction="Make it longer and more detailed">Longer</button>
+            <button type="button" class="btn secondary ai-btn ai-quick-pick" data-instruction="Make it more casual and friendly">More casual</button>
+            <button type="button" class="btn secondary ai-btn ai-quick-pick" data-instruction="Make it more professional">More professional</button>
+            <button type="button" class="btn secondary ai-btn ai-quick-pick" data-instruction="Add a sense of urgency">Add urgency</button>
+          </div>
+          <input id="ai-instruction" placeholder="Or type your own instruction..." />
+          <button type="button" class="btn secondary ai-btn" id="btn-ai-rewrite">Rewrite caption</button>
+        </div>
+        <div class="ai-assist-section">
+          <button type="button" class="btn secondary ai-btn" id="btn-ai-variants">Generate 3 variants</button>
+        </div>
+        <div id="ai-results"></div>
+      </div>
+    `;
+  }
+
   function renderAll() {
     const locked = post.status === 'published';
     root.innerHTML = `
@@ -437,6 +602,8 @@ export async function render(root, { params, session }) {
           </div>
         </div>
 
+        ${locked ? '' : aiAssistCard()}
+
         <div class="card">
           <strong>Media</strong>
           <div class="editor-media-list" id="editor-media-list">${mediaListMarkup()}</div>
@@ -529,6 +696,16 @@ export async function render(root, { params, session }) {
     });
 
     document.getElementById('btn-save').addEventListener('click', () => save());
+
+    const draftBtn = document.getElementById('btn-ai-draft');
+    if (draftBtn) draftBtn.addEventListener('click', () => doAiDraft());
+    const rewriteBtn = document.getElementById('btn-ai-rewrite');
+    if (rewriteBtn) rewriteBtn.addEventListener('click', () => doAiRewrite());
+    const variantsBtn = document.getElementById('btn-ai-variants');
+    if (variantsBtn) variantsBtn.addEventListener('click', () => doAiVariants());
+    root.querySelectorAll('.ai-quick-pick').forEach((btn) => {
+      btn.addEventListener('click', () => doAiRewrite(btn.dataset.instruction));
+    });
 
     root.querySelectorAll('[data-to]').forEach((btn) => {
       btn.addEventListener('click', () => {
