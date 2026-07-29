@@ -281,7 +281,23 @@ export async function render(root, { session }) {
       <p><strong>Status:</strong> ${configured ? 'Key configured' : 'Not configured'}</p>
       <div class="form-field">
         <label for="ai-key-input">Anthropic API key</label>
-        <input id="ai-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
+        <div class="subscribe-row">
+          <input
+            id="ai-key-input"
+            type="text"
+            inputmode="text"
+            placeholder="sk-ant-..."
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            style="-webkit-text-security: disc; text-security: disc;"
+          />
+          <button class="btn secondary" id="btn-toggle-ai-key" type="button">Show</button>
+        </div>
       </div>
       <div class="editor-actions">
         <button class="btn" id="btn-save-ai-key">Save key</button>
@@ -290,6 +306,14 @@ export async function render(root, { session }) {
       </div>
       <p id="ai-test-result"></p>
     `;
+
+    document.getElementById('btn-toggle-ai-key').addEventListener('click', (e) => {
+      const input = document.getElementById('ai-key-input');
+      const showing = input.style.webkitTextSecurity === 'none';
+      input.style.webkitTextSecurity = showing ? 'disc' : 'none';
+      input.style.textSecurity = showing ? 'disc' : 'none';
+      e.target.textContent = showing ? 'Show' : 'Hide';
+    });
 
     document.getElementById('btn-save-ai-key').addEventListener('click', async () => {
       const input = document.getElementById('ai-key-input');
