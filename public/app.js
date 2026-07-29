@@ -86,6 +86,7 @@ const PAGES = {
   dashboard: () => import('./pages/dashboard.js'),
   content: () => import('./pages/content.js'),
   calendar: () => import('./pages/calendar.js'),
+  planning: () => import('./pages/planning.js'),
   editor: () => import('./pages/editor.js'),
   library: () => import('./pages/library.js'),
   media: () => import('./pages/media.js'),
@@ -95,6 +96,7 @@ const PAGES = {
 const NAV_ITEMS = [
   { page: 'dashboard', label: 'Dashboard' },
   { page: 'calendar', label: 'Calendar' },
+  { page: 'planning', label: 'Plan' },
   { page: 'content', label: 'Content' },
   { page: 'library', label: 'Library' },
   { page: 'media', label: 'Media' },

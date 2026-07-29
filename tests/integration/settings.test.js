@@ -57,13 +57,16 @@ test('owner can read and update brand settings; editor gets 403 on write', async
   const get1 = await owner.get('/api/settings/brand');
   assert.equal(get1.status, 200);
   assert.equal(get1.data.brandSettings.business_name, 'RG Bookkeeping Services');
+  assert.equal(get1.data.brandSettings.posts_per_week_target, 2, 'defaults to the owner\'s stated 2x/week cadence');
 
   const update = await owner.put('/api/settings/brand', {
     tone: 'warm, plain-spoken, no jargon',
     website_url: 'https://example.com',
+    posts_per_week_target: 3,
   });
   assert.equal(update.status, 200);
   assert.equal(update.data.brandSettings.tone, 'warm, plain-spoken, no jargon');
+  assert.equal(update.data.brandSettings.posts_per_week_target, 3);
 
   const editor = createClient(baseUrl);
   await loginAs(editor, editorId);

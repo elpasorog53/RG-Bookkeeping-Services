@@ -75,6 +75,7 @@ export async function render(root, { session }) {
       <div class="form-field"><label>Website URL</label><input id="s-website-url" value="${escapeHtml(b.website_url || '')}" ${isOwner ? '' : 'disabled'} /></div>
       <div class="form-field"><label>Contact info</label><input id="s-contact-info" value="${escapeHtml(b.contact_info || '')}" ${isOwner ? '' : 'disabled'} /></div>
       <div class="form-field"><label>Disclaimer text</label><textarea id="s-disclaimer-text" rows="2" ${isOwner ? '' : 'disabled'}>${escapeHtml(b.disclaimer_text || '')}</textarea></div>
+      <div class="form-field"><label>Posting cadence target (posts/week)</label><input id="s-cadence-target" type="number" min="0" max="30" value="${b.posts_per_week_target ?? 2}" ${isOwner ? '' : 'disabled'} /></div>
       ${isOwner ? '<button class="btn" id="btn-save-brand">Save</button>' : '<p class="empty-state">Only the Owner can edit brand settings.</p>'}
     `;
     if (isOwner) {
@@ -92,6 +93,7 @@ export async function render(root, { session }) {
               website_url: document.getElementById('s-website-url').value,
               contact_info: document.getElementById('s-contact-info').value,
               disclaimer_text: document.getElementById('s-disclaimer-text').value,
+              posts_per_week_target: Number(document.getElementById('s-cadence-target').value),
             },
           });
           toast('Saved');
