@@ -1,10 +1,11 @@
 import { api, escapeHtml, toast } from '../app.js';
 
-const TABS = ['brand', 'pillars', 'templates', 'platforms', 'ai', 'users', 'audit'];
+const TABS = ['brand', 'pillars', 'templates', 'recurrence', 'platforms', 'ai', 'users', 'audit'];
 const TAB_LABELS = {
   brand: 'Brand Voice',
   pillars: 'Pillars',
   templates: 'Templates',
+  recurrence: 'Recurrence',
   platforms: 'Platforms',
   ai: 'AI',
   users: 'Users',
@@ -12,10 +13,35 @@ const TAB_LABELS = {
 };
 const OWNER_ONLY_TABS = new Set(['ai', 'users', 'audit']);
 
+const DAY_OF_WEEK_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_LABELS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function ordinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const rem10 = n % 10;
+  if (rem10 === 1) return `${n}st`;
+  if (rem10 === 2) return `${n}nd`;
+  if (rem10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+
+function describeRuleFrequency(r) {
+  if (r.frequency === 'weekly') return `Weekly on ${DAY_OF_WEEK_LABELS[r.day_of_week]}`;
+  if (r.frequency === 'monthly') return `Monthly on the ${ordinal(r.day_of_month)}`;
+  if (r.frequency === 'quarterly') return `Quarterly on the ${ordinal(r.day_of_month)}`;
+  if (r.frequency === 'yearly') return `Yearly on ${MONTH_LABELS[r.month_of_year - 1]} ${ordinal(r.day_of_month)}`;
+  return r.frequency;
+}
+
 export async function render(root, { session }) {
   const isOwner = session.role === 'OWNER';
   let activeTab = 'brand';
   let editingTemplateId = null;
+  let editingRuleId = null;
 
   function shell() {
     root.innerHTML = `
@@ -322,6 +348,274 @@ export async function render(root, { session }) {
     }
   }
 
+  function frequencyFieldsMarkup(prefix, frequency, values) {
+    if (frequency === 'weekly') {
+      return `
+        <div class="form-field">
+          <label for="${prefix}-day-of-week">Day of week</label>
+          <select id="${prefix}-day-of-week">
+            ${DAY_OF_WEEK_LABELS.map(
+              (label, i) => `<option value="${i}" ${values.day_of_week === i ? 'selected' : ''}>${label}</option>`
+            ).join('')}
+          </select>
+        </div>
+      `;
+    }
+    if (frequency === 'monthly' || frequency === 'quarterly') {
+      return `
+        <div class="form-field">
+          <label for="${prefix}-day-of-month">Day of month</label>
+          <input id="${prefix}-day-of-month" type="number" min="1" max="31" value="${values.day_of_month ?? ''}" />
+        </div>
+      `;
+    }
+    if (frequency === 'yearly') {
+      return `
+        <div class="editor-row">
+          <div class="form-field">
+            <label for="${prefix}-month-of-year">Month</label>
+            <select id="${prefix}-month-of-year">
+              ${MONTH_LABELS.map(
+                (label, i) =>
+                  `<option value="${i + 1}" ${values.month_of_year === i + 1 ? 'selected' : ''}>${label}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="${prefix}-day-of-month">Day</label>
+            <input id="${prefix}-day-of-month" type="number" min="1" max="31" value="${values.day_of_month ?? ''}" />
+          </div>
+        </div>
+      `;
+    }
+    return '';
+  }
+
+  async function renderRecurrenceTab() {
+    const [{ rules }, { templates }] = await Promise.all([api('/api/recurrence-rules'), api('/api/templates')]);
+    const panel = document.getElementById('settings-panel');
+
+    function templateOptions(selectedId) {
+      if (templates.length === 0) return '<option value="">No templates yet</option>';
+      return templates
+        .map((t) => `<option value="${t.id}" ${selectedId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`)
+        .join('');
+    }
+
+    function readFrequencyFields(prefix, frequency) {
+      const fields = { frequency };
+      if (frequency === 'weekly') {
+        fields.day_of_week = Number(document.getElementById(`${prefix}-day-of-week`).value);
+      } else if (frequency === 'monthly' || frequency === 'quarterly') {
+        fields.day_of_month = Number(document.getElementById(`${prefix}-day-of-month`).value);
+      } else if (frequency === 'yearly') {
+        fields.month_of_year = Number(document.getElementById(`${prefix}-month-of-year`).value);
+        fields.day_of_month = Number(document.getElementById(`${prefix}-day-of-month`).value);
+      }
+      return fields;
+    }
+
+    function wireFrequencySelect(prefix, values) {
+      const select = document.getElementById(`${prefix}-frequency`);
+      const container = document.getElementById(`${prefix}-frequency-fields`);
+      select.addEventListener('change', () => {
+        container.innerHTML = frequencyFieldsMarkup(prefix, select.value, values);
+      });
+    }
+
+    function ruleRow(r) {
+      if (editingRuleId === r.id) {
+        return `
+          <div class="card" data-id="${r.id}">
+            <div class="form-field"><label>Template</label><select id="edit-rule-template">${templateOptions(r.template_id)}</select></div>
+            <div class="form-field">
+              <label>Frequency</label>
+              <select id="edit-rule-frequency">
+                ${['weekly', 'monthly', 'quarterly', 'yearly']
+                  .map(
+                    (f) =>
+                      `<option value="${f}" ${r.frequency === f ? 'selected' : ''}>${f[0].toUpperCase()}${f.slice(1)}</option>`
+                  )
+                  .join('')}
+              </select>
+            </div>
+            <div id="edit-rule-frequency-fields">${frequencyFieldsMarkup('edit-rule', r.frequency, r)}</div>
+            <div class="editor-row">
+              <div class="form-field"><label>Lead time (days)</label><input id="edit-rule-lead-time" type="number" min="0" value="${r.lead_time_days}" /></div>
+              <div class="form-field"><label>Start on</label><input id="edit-rule-start-on" type="date" value="${r.start_on}" /></div>
+              <div class="form-field"><label>End on (optional)</label><input id="edit-rule-end-on" type="date" value="${r.end_on || ''}" /></div>
+            </div>
+            <div class="form-field"><label><input type="checkbox" id="edit-rule-requires-review" ${r.requires_review ? 'checked' : ''} /> Needs review before publishing</label></div>
+            <div class="form-field"><label><input type="checkbox" id="edit-rule-requires-date-verification" ${r.requires_date_verification ? 'checked' : ''} /> References a date/deadline that must be verified each time (e.g. tax deadlines)</label></div>
+            <div class="editor-actions">
+              <button class="btn" id="btn-save-rule-edit">Save</button>
+              <button class="btn secondary" id="btn-cancel-rule-edit">Cancel</button>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="post-row" data-id="${r.id}">
+          <span class="post-row-title">${escapeHtml(r.template_name)}${r.is_paused ? ' (paused)' : ''}</span>
+          <span class="status-pill">${describeRuleFrequency(r)}</span>
+          <span class="empty-state">${r.lead_time_days}d lead</span>
+          ${
+            isOwner
+              ? `
+            <button class="btn secondary rule-edit" data-id="${r.id}">Edit</button>
+            <button class="btn secondary rule-toggle-pause" data-id="${r.id}" data-paused="${r.is_paused}">${r.is_paused ? 'Resume' : 'Pause'}</button>
+            <button class="btn danger rule-delete" data-id="${r.id}">Delete</button>
+          `
+              : ''
+          }
+        </div>
+      `;
+    }
+
+    panel.innerHTML = `
+      <h2>Recurrence</h2>
+      <p class="empty-state">Automatically generate draft posts from a template on a schedule &mdash; new drafts appear whenever the app is opened after one comes due.</p>
+      ${
+        isOwner
+          ? `
+        <div class="card">
+          <strong>New recurrence rule</strong>
+          ${
+            templates.length === 0
+              ? '<p class="empty-state">Create a template first (Templates tab) before adding a recurrence rule.</p>'
+              : `
+            <div class="form-field"><label>Template</label><select id="new-rule-template">${templateOptions(null)}</select></div>
+            <div class="form-field">
+              <label>Frequency</label>
+              <select id="new-rule-frequency">
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div id="new-rule-frequency-fields">${frequencyFieldsMarkup('new-rule', 'weekly', { day_of_week: 1 })}</div>
+            <div class="editor-row">
+              <div class="form-field"><label>Lead time (days)</label><input id="new-rule-lead-time" type="number" min="0" value="7" /></div>
+              <div class="form-field"><label>Start on</label><input id="new-rule-start-on" type="date" /></div>
+              <div class="form-field"><label>End on (optional)</label><input id="new-rule-end-on" type="date" /></div>
+            </div>
+            <div class="form-field"><label><input type="checkbox" id="new-rule-requires-review" checked /> Needs review before publishing</label></div>
+            <div class="form-field"><label><input type="checkbox" id="new-rule-requires-date-verification" /> References a date/deadline that must be verified each time (e.g. tax deadlines)</label></div>
+            <button class="btn" id="btn-add-rule">Add rule</button>
+          `
+          }
+        </div>
+      `
+          : ''
+      }
+      <div class="post-list" id="rule-list">
+        ${rules.length === 0 ? '<p class="empty-state">No recurrence rules yet.</p>' : rules.map(ruleRow).join('')}
+      </div>
+    `;
+
+    if (isOwner && templates.length > 0 && document.getElementById('new-rule-frequency')) {
+      wireFrequencySelect('new-rule', { day_of_week: 1 });
+    }
+    if (editingRuleId) {
+      const editingRule = rules.find((r) => r.id === editingRuleId);
+      if (editingRule) wireFrequencySelect('edit-rule', editingRule);
+    }
+
+    if (isOwner) {
+      const addBtn = document.getElementById('btn-add-rule');
+      if (addBtn) {
+        addBtn.addEventListener('click', async () => {
+          const frequency = document.getElementById('new-rule-frequency').value;
+          const startOn = document.getElementById('new-rule-start-on').value;
+          if (!startOn) {
+            toast('Pick a start date first', { isError: true });
+            return;
+          }
+          const endOn = document.getElementById('new-rule-end-on').value;
+          try {
+            await api('/api/recurrence-rules', {
+              method: 'POST',
+              body: {
+                template_id: document.getElementById('new-rule-template').value,
+                frequency,
+                ...readFrequencyFields('new-rule', frequency),
+                lead_time_days: Number(document.getElementById('new-rule-lead-time').value),
+                start_on: startOn,
+                end_on: endOn || null,
+                requires_review: document.getElementById('new-rule-requires-review').checked,
+                requires_date_verification: document.getElementById('new-rule-requires-date-verification').checked,
+              },
+            });
+            toast('Recurrence rule added');
+            renderRecurrenceTab();
+          } catch (err) {
+            toast(err.message, { isError: true });
+          }
+        });
+      }
+
+      panel.querySelectorAll('.rule-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          editingRuleId = btn.dataset.id;
+          renderRecurrenceTab();
+        });
+      });
+      panel.querySelectorAll('.rule-toggle-pause').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const isPaused = btn.dataset.paused === 'true';
+          await api(`/api/recurrence-rules/${btn.dataset.id}`, { method: 'PUT', body: { is_paused: !isPaused } });
+          renderRecurrenceTab();
+        });
+      });
+      panel.querySelectorAll('.rule-delete').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!window.confirm('Delete this recurrence rule? This does not delete any posts it already generated.')) return;
+          await api(`/api/recurrence-rules/${btn.dataset.id}`, { method: 'DELETE' });
+          toast('Recurrence rule deleted');
+          renderRecurrenceTab();
+        });
+      });
+
+      const saveEditBtn = document.getElementById('btn-save-rule-edit');
+      if (saveEditBtn) {
+        saveEditBtn.addEventListener('click', async () => {
+          const frequency = document.getElementById('edit-rule-frequency').value;
+          const startOn = document.getElementById('edit-rule-start-on').value;
+          const endOn = document.getElementById('edit-rule-end-on').value;
+          try {
+            await api(`/api/recurrence-rules/${editingRuleId}`, {
+              method: 'PUT',
+              body: {
+                template_id: document.getElementById('edit-rule-template').value,
+                frequency,
+                ...readFrequencyFields('edit-rule', frequency),
+                lead_time_days: Number(document.getElementById('edit-rule-lead-time').value),
+                start_on: startOn,
+                end_on: endOn || null,
+                requires_review: document.getElementById('edit-rule-requires-review').checked,
+                requires_date_verification: document.getElementById('edit-rule-requires-date-verification').checked,
+              },
+            });
+            toast('Recurrence rule saved');
+            editingRuleId = null;
+            renderRecurrenceTab();
+          } catch (err) {
+            toast(err.message, { isError: true });
+          }
+        });
+      }
+      const cancelEditBtn = document.getElementById('btn-cancel-rule-edit');
+      if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+          editingRuleId = null;
+          renderRecurrenceTab();
+        });
+      }
+    }
+  }
+
   async function renderPlatformsTab() {
     const { platforms } = await api('/api/settings/platforms');
     const panel = document.getElementById('settings-panel');
@@ -550,6 +844,7 @@ export async function render(root, { session }) {
       brand: renderBrandTab,
       pillars: renderPillarsTab,
       templates: renderTemplatesTab,
+      recurrence: renderRecurrenceTab,
       platforms: renderPlatformsTab,
       ai: renderAiTab,
       users: renderUsersTab,

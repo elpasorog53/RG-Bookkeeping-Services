@@ -168,5 +168,17 @@ export async function render(root) {
     `;
   }
 
-  await Promise.all([loadWeekCounts(), loadNextUp(), loadNeedsReview(), loadEvergreenDue()]);
+  async function runRecurrenceGeneration() {
+    try {
+      const { generated } = await api('/api/recurrence-rules/run', { method: 'POST' });
+      if (generated.length > 0) {
+        toast(`${generated.length} recurring post${generated.length === 1 ? '' : 's'} generated from your schedule`);
+      }
+    } catch {
+      // Non-critical background maintenance -- a failure here shouldn't
+      // interrupt the rest of the dashboard.
+    }
+  }
+
+  await Promise.all([loadWeekCounts(), loadNextUp(), loadNeedsReview(), loadEvergreenDue(), runRecurrenceGeneration()]);
 }
