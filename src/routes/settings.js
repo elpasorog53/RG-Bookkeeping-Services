@@ -6,6 +6,7 @@ import { writeAudit } from '../lib/audit.js';
 import { requireOwner, hashPassword, randomToken, sha256, destroyAllSessionsForUser } from '../lib/auth-middleware.js';
 import { rateLimit, ipKey } from '../lib/rate-limit.js';
 import { sendMail } from '../lib/mailer.js';
+import { getConfig, setConfig, clearConfig, hasConfig } from '../lib/config.js';
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -269,6 +270,100 @@ router.post('/calendar-feed-url/regenerate', requireOwner, async (req, res, next
       req,
     });
     res.json({ feedUrl: feedUrlFor(token) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const aiConfigSchema = z.object({ apiKey: z.string().min(10).max(500) });
+
+// Any authenticated org member can check whether AI is configured (so the
+// UI knows whether to show AI buttons at all) -- only the raw key itself,
+// never returned by any endpoint, is Owner-only to touch.
+router.get('/ai-config', async (_req, res, next) => {
+  try {
+    const configured = await hasConfig('ANTHROPIC_API_KEY');
+    res.json({ configured });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/ai-config', requireOwner, validateBody(aiConfigSchema), async (req, res, next) => {
+  try {
+    await setConfig('ANTHROPIC_API_KEY', req.body.apiKey);
+    await writeAudit(getPool(), {
+      orgId: req.orgId,
+      actorId: req.user.id,
+      action: 'settings.ai_key_update',
+      recordType: 'app_config',
+      recordId: 'ANTHROPIC_API_KEY',
+      before: null,
+      after: { configured: true },
+      req,
+    });
+    res.json({ configured: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/ai-config', requireOwner, async (req, res, next) => {
+  try {
+    await clearConfig('ANTHROPIC_API_KEY');
+    await writeAudit(getPool(), {
+      orgId: req.orgId,
+      actorId: req.user.id,
+      action: 'settings.ai_key_remove',
+      recordType: 'app_config',
+      recordId: 'ANTHROPIC_API_KEY',
+      before: { configured: true },
+      after: { configured: false },
+      req,
+    });
+    res.json({ configured: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Makes one real, minimal call to Anthropic to confirm the stored key
+// actually authenticates, without the raw key ever leaving the server.
+router.post('/ai-config/test', requireOwner, async (req, res, next) => {
+  try {
+    const apiKey = await getConfig('ANTHROPIC_API_KEY');
+    if (!apiKey) return res.status(400).json({ ok: false, error: 'No API key is configured yet' });
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Reply with just the word OK.' }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      return res.json({ ok: false, error: errBody.error?.message || `Anthropic API returned HTTP ${response.status}` });
+    }
+
+    await writeAudit(getPool(), {
+      orgId: req.orgId,
+      actorId: req.user.id,
+      action: 'settings.ai_key_test',
+      recordType: 'app_config',
+      recordId: 'ANTHROPIC_API_KEY',
+      before: null,
+      after: { ok: true },
+      req,
+    });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

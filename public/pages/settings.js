@@ -1,7 +1,15 @@
 import { api, escapeHtml, toast } from '../app.js';
 
-const TABS = ['brand', 'pillars', 'platforms', 'users', 'audit'];
-const TAB_LABELS = { brand: 'Brand Voice', pillars: 'Pillars', platforms: 'Platforms', users: 'Users', audit: 'Audit' };
+const TABS = ['brand', 'pillars', 'platforms', 'ai', 'users', 'audit'];
+const TAB_LABELS = {
+  brand: 'Brand Voice',
+  pillars: 'Pillars',
+  platforms: 'Platforms',
+  ai: 'AI',
+  users: 'Users',
+  audit: 'Audit',
+};
+const OWNER_ONLY_TABS = new Set(['ai', 'users', 'audit']);
 
 export async function render(root, { session }) {
   const isOwner = session.role === 'OWNER';
@@ -10,7 +18,7 @@ export async function render(root, { session }) {
   function shell() {
     root.innerHTML = `
       <div class="settings-tabs">
-        ${TABS.filter((t) => isOwner || (t !== 'audit' && t !== 'users'))
+        ${TABS.filter((t) => isOwner || !OWNER_ONLY_TABS.has(t))
           .map((t) => `<button class="btn secondary settings-tab" data-tab="${t}">${TAB_LABELS[t]}</button>`)
           .join('')}
       </div>
@@ -261,6 +269,70 @@ export async function render(root, { session }) {
     `;
   }
 
+  async function renderAiTab() {
+    const { configured } = await api('/api/settings/ai-config');
+    const panel = document.getElementById('settings-panel');
+    panel.innerHTML = `
+      <h2>AI Assist</h2>
+      <p class="empty-state">
+        Drafting help uses your own Anthropic API key, billed directly to you.
+        Nothing AI-related is available anywhere in the app until a key is set here.
+      </p>
+      <p><strong>Status:</strong> ${configured ? 'Key configured' : 'Not configured'}</p>
+      <div class="form-field">
+        <label for="ai-key-input">Anthropic API key</label>
+        <input id="ai-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      </div>
+      <div class="editor-actions">
+        <button class="btn" id="btn-save-ai-key">Save key</button>
+        <button class="btn secondary" id="btn-test-ai-key" ${configured ? '' : 'disabled'}>Test connection</button>
+        ${configured ? '<button class="btn danger" id="btn-remove-ai-key">Remove key</button>' : ''}
+      </div>
+      <p id="ai-test-result"></p>
+    `;
+
+    document.getElementById('btn-save-ai-key').addEventListener('click', async () => {
+      const input = document.getElementById('ai-key-input');
+      if (!input.value.trim()) {
+        toast('Enter a key first', { isError: true });
+        return;
+      }
+      try {
+        await api('/api/settings/ai-config', { method: 'PUT', body: { apiKey: input.value.trim() } });
+        toast('Key saved');
+        renderAiTab();
+      } catch (err) {
+        toast(err.message, { isError: true });
+      }
+    });
+
+    const testBtn = document.getElementById('btn-test-ai-key');
+    if (testBtn) {
+      testBtn.addEventListener('click', async () => {
+        const resultEl = document.getElementById('ai-test-result');
+        resultEl.textContent = 'Testing…';
+        try {
+          const result = await api('/api/settings/ai-config/test', { method: 'POST' });
+          resultEl.textContent = result.ok ? 'Success — the key works.' : `Failed: ${result.error}`;
+          resultEl.className = result.ok ? '' : 'error-text';
+        } catch (err) {
+          resultEl.textContent = `Failed: ${err.message}`;
+          resultEl.className = 'error-text';
+        }
+      });
+    }
+
+    const removeBtn = document.getElementById('btn-remove-ai-key');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', async () => {
+        if (!window.confirm('Remove the stored API key? AI features will be hidden again until a new key is added.')) return;
+        await api('/api/settings/ai-config', { method: 'DELETE' });
+        toast('Key removed');
+        renderAiTab();
+      });
+    }
+  }
+
   async function renderPanel() {
     root.querySelectorAll('.settings-tab').forEach((btn) => {
       btn.classList.toggle('active-tab', btn.dataset.tab === activeTab);
@@ -269,6 +341,7 @@ export async function render(root, { session }) {
       brand: renderBrandTab,
       pillars: renderPillarsTab,
       platforms: renderPlatformsTab,
+      ai: renderAiTab,
       users: renderUsersTab,
       audit: renderAuditTab,
     };
