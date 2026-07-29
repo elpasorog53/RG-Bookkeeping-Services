@@ -51,10 +51,11 @@ export async function render(root, { params, session }) {
   const postId = isNew ? null : params[0];
   const isOwner = session.role === 'OWNER';
 
-  const [pillarsData, platformsData, aiConfigData] = await Promise.all([
+  const [pillarsData, platformsData, aiConfigData, templatesData] = await Promise.all([
     api('/api/pillars'),
     api('/api/settings/platforms'),
     api('/api/settings/ai-config'),
+    isNew ? api('/api/templates') : Promise.resolve({ templates: [] }),
   ]);
   const platformsByKey = new Map(platformsData.platforms.map((p) => [p.key, p]));
   const aiConfigured = aiConfigData.configured;
@@ -468,6 +469,19 @@ export async function render(root, { params, session }) {
     }
   }
 
+  function templatePickerMarkup() {
+    if (templatesData.templates.length === 0) return '';
+    return `
+      <div class="form-field">
+        <label for="template-picker">Start from a template</label>
+        <select id="template-picker">
+          <option value="">&mdash; choose a template &mdash;</option>
+          ${templatesData.templates.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  }
+
   function aiAssistCard() {
     if (!aiConfigured) {
       return `
@@ -515,6 +529,8 @@ export async function render(root, { params, session }) {
         </div>
 
         ${needsReviewNotice()}
+
+        ${isNew && !post.id ? templatePickerMarkup() : ''}
 
         <div class="form-field">
           <label for="f-title">Title</label>
@@ -696,6 +712,21 @@ export async function render(root, { params, session }) {
     });
 
     document.getElementById('btn-save').addEventListener('click', () => save());
+
+    const templatePicker = document.getElementById('template-picker');
+    if (templatePicker) {
+      templatePicker.addEventListener('change', () => {
+        const template = templatesData.templates.find((t) => t.id === templatePicker.value);
+        if (!template) return;
+        Object.assign(post, collectFields());
+        if (!post.title) post.title = template.name;
+        post.pillar_id = template.pillar_id;
+        post.platforms = template.platforms || [];
+        post.caption_main = template.body;
+        renderAll();
+        scheduleAutosave();
+      });
+    }
 
     const draftBtn = document.getElementById('btn-ai-draft');
     if (draftBtn) draftBtn.addEventListener('click', () => doAiDraft());

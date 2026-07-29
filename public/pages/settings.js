@@ -1,9 +1,10 @@
 import { api, escapeHtml, toast } from '../app.js';
 
-const TABS = ['brand', 'pillars', 'platforms', 'ai', 'users', 'audit'];
+const TABS = ['brand', 'pillars', 'templates', 'platforms', 'ai', 'users', 'audit'];
 const TAB_LABELS = {
   brand: 'Brand Voice',
   pillars: 'Pillars',
+  templates: 'Templates',
   platforms: 'Platforms',
   ai: 'AI',
   users: 'Users',
@@ -14,6 +15,7 @@ const OWNER_ONLY_TABS = new Set(['ai', 'users', 'audit']);
 export async function render(root, { session }) {
   const isOwner = session.role === 'OWNER';
   let activeTab = 'brand';
+  let editingTemplateId = null;
 
   function shell() {
     root.innerHTML = `
@@ -134,6 +136,189 @@ export async function render(root, { session }) {
           renderPillarsTab();
         });
       });
+    }
+  }
+
+  async function renderTemplatesTab() {
+    const [{ templates }, { pillars }, { platforms }] = await Promise.all([
+      api('/api/templates?includeArchived=true'),
+      api('/api/pillars'),
+      api('/api/settings/platforms'),
+    ]);
+    const pillarsById = new Map(pillars.map((p) => [p.id, p]));
+    const panel = document.getElementById('settings-panel');
+
+    function pillarOptions(selectedId) {
+      return `<option value="">No pillar</option>${pillars
+        .map((p) => `<option value="${p.id}" ${selectedId === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
+        .join('')}`;
+    }
+
+    function platformCheckboxes(prefix, selected) {
+      return platforms
+        .map(
+          (p) => `
+        <label class="platform-toggle">
+          <input type="checkbox" class="${prefix}-platform-check" value="${p.key}" ${selected.includes(p.key) ? 'checked' : ''} />
+          ${escapeHtml(p.label)}
+        </label>
+      `
+        )
+        .join(' ');
+    }
+
+    function templateRow(t) {
+      if (editingTemplateId === t.id) {
+        return `
+          <div class="card" data-id="${t.id}">
+            <div class="form-field"><label>Name</label><input id="edit-template-name" value="${escapeHtml(t.name)}" /></div>
+            <div class="form-field"><label>Pillar</label><select id="edit-template-pillar">${pillarOptions(t.pillar_id)}</select></div>
+            <div class="form-field">
+              <label>Platforms</label>
+              <div class="platform-toggles">${platformCheckboxes('edit-template', t.platforms || [])}</div>
+            </div>
+            <div class="form-field"><label>Body</label><textarea id="edit-template-body" rows="4">${escapeHtml(t.body)}</textarea></div>
+            <div class="editor-actions">
+              <button class="btn" id="btn-save-template-edit">Save</button>
+              <button class="btn secondary" id="btn-cancel-template-edit">Cancel</button>
+            </div>
+          </div>
+        `;
+      }
+
+      const pillar = t.pillar_id ? pillarsById.get(t.pillar_id) : null;
+      const platformLabels = (t.platforms || [])
+        .map((key) => platforms.find((p) => p.key === key)?.label || key)
+        .join(', ');
+
+      return `
+        <div class="post-row" data-id="${t.id}">
+          <span class="post-row-title">${escapeHtml(t.name)}${t.archived_at ? ' (archived)' : ''}</span>
+          ${pillar ? `<span class="status-pill">${escapeHtml(pillar.name)}</span>` : ''}
+          ${platformLabels ? `<span class="empty-state">${escapeHtml(platformLabels)}</span>` : ''}
+          ${
+            isOwner
+              ? `
+            <button class="btn secondary template-edit" data-id="${t.id}">Edit</button>
+            ${
+              t.archived_at
+                ? `<button class="btn secondary template-restore" data-id="${t.id}">Restore</button>`
+                : `<button class="btn secondary template-archive" data-id="${t.id}">Archive</button>`
+            }
+          `
+              : ''
+          }
+        </div>
+      `;
+    }
+
+    panel.innerHTML = `
+      <h2>Templates</h2>
+      <p class="empty-state">Reusable starting points for new posts &mdash; pick one from the New Post screen.</p>
+      ${
+        isOwner
+          ? `
+        <div class="card">
+          <strong>New template</strong>
+          <div class="form-field"><label>Name</label><input id="new-template-name" placeholder="e.g. Weekly bookkeeping tip" /></div>
+          <div class="form-field"><label>Pillar</label><select id="new-template-pillar">${pillarOptions(null)}</select></div>
+          <div class="form-field">
+            <label>Platforms</label>
+            <div class="platform-toggles">${platformCheckboxes('new-template', [])}</div>
+          </div>
+          <div class="form-field"><label>Body</label><textarea id="new-template-body" rows="4" placeholder="The starting caption text"></textarea></div>
+          <button class="btn" id="btn-add-template">Add template</button>
+        </div>
+      `
+          : ''
+      }
+      <div class="post-list" id="template-list">
+        ${templates.length === 0 ? '<p class="empty-state">No templates yet.</p>' : templates.map(templateRow).join('')}
+      </div>
+    `;
+
+    if (isOwner) {
+      document.getElementById('btn-add-template').addEventListener('click', async () => {
+        const name = document.getElementById('new-template-name').value.trim();
+        if (!name) {
+          toast('Enter a name first', { isError: true });
+          return;
+        }
+        const body = document.getElementById('new-template-body').value.trim();
+        if (!body) {
+          toast('Enter body text first', { isError: true });
+          return;
+        }
+        const platformKeys = Array.from(panel.querySelectorAll('.new-template-platform-check:checked')).map(
+          (el) => el.value
+        );
+        try {
+          await api('/api/templates', {
+            method: 'POST',
+            body: {
+              name,
+              pillar_id: document.getElementById('new-template-pillar').value || null,
+              platforms: platformKeys,
+              body,
+            },
+          });
+          toast('Template added');
+          renderTemplatesTab();
+        } catch (err) {
+          toast(err.message, { isError: true });
+        }
+      });
+
+      panel.querySelectorAll('.template-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          editingTemplateId = btn.dataset.id;
+          renderTemplatesTab();
+        });
+      });
+      panel.querySelectorAll('.template-archive').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await api(`/api/templates/${btn.dataset.id}/archive`, { method: 'POST' });
+          renderTemplatesTab();
+        });
+      });
+      panel.querySelectorAll('.template-restore').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          await api(`/api/templates/${btn.dataset.id}/restore`, { method: 'POST' });
+          renderTemplatesTab();
+        });
+      });
+
+      const saveEditBtn = document.getElementById('btn-save-template-edit');
+      if (saveEditBtn) {
+        saveEditBtn.addEventListener('click', async () => {
+          const platformKeys = Array.from(panel.querySelectorAll('.edit-template-platform-check:checked')).map(
+            (el) => el.value
+          );
+          try {
+            await api(`/api/templates/${editingTemplateId}`, {
+              method: 'PUT',
+              body: {
+                name: document.getElementById('edit-template-name').value.trim(),
+                pillar_id: document.getElementById('edit-template-pillar').value || null,
+                platforms: platformKeys,
+                body: document.getElementById('edit-template-body').value.trim(),
+              },
+            });
+            toast('Template saved');
+            editingTemplateId = null;
+            renderTemplatesTab();
+          } catch (err) {
+            toast(err.message, { isError: true });
+          }
+        });
+      }
+      const cancelEditBtn = document.getElementById('btn-cancel-template-edit');
+      if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', () => {
+          editingTemplateId = null;
+          renderTemplatesTab();
+        });
+      }
     }
   }
 
@@ -364,6 +549,7 @@ export async function render(root, { session }) {
     const renderers = {
       brand: renderBrandTab,
       pillars: renderPillarsTab,
+      templates: renderTemplatesTab,
       platforms: renderPlatformsTab,
       ai: renderAiTab,
       users: renderUsersTab,
