@@ -27,6 +27,21 @@ export async function render(root) {
   const pillarsById = new Map(pillarsData.pillars.map((p) => [p.id, p]));
 
   root.innerHTML = `
+    <details class="card subscribe-card">
+      <summary>Subscribe to this calendar (Apple/Google Calendar)</summary>
+      <p class="empty-state">
+        Add scheduled posts as events on your phone/computer calendar automatically.
+        Subscribe once and it stays in sync as you add or reschedule posts.
+      </p>
+      <div class="subscribe-row">
+        <input id="feed-url" readonly value="Loading&hellip;" />
+        <button class="btn secondary" id="copy-feed-url">Copy link</button>
+      </div>
+      <p class="empty-state">
+        <strong>Apple Calendar:</strong> File &rarr; New Calendar Subscription &rarr; paste the link.<br />
+        <strong>Google Calendar:</strong> Other calendars (+) &rarr; From URL &rarr; paste the link.
+      </p>
+    </details>
     <div class="calendar-toolbar">
       <button class="btn secondary" id="cal-prev">&larr;</button>
       <strong id="cal-label"></strong>
@@ -220,6 +235,47 @@ export async function render(root) {
   document.getElementById('cal-view-list').addEventListener('click', () => {
     view = 'list';
     loadAndRenderBody();
+  });
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // fall through to the legacy path below
+      }
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      textarea.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  api('/api/settings/calendar-feed-url')
+    .then(({ feedUrl }) => {
+      document.getElementById('feed-url').value = feedUrl;
+    })
+    .catch(() => {
+      document.getElementById('feed-url').value = 'Could not load link';
+    });
+
+  document.getElementById('copy-feed-url').addEventListener('click', async () => {
+    const input = document.getElementById('feed-url');
+    const copied = await copyToClipboard(input.value);
+    toast(copied ? 'Link copied' : 'Could not copy automatically — select and copy manually', {
+      isError: !copied,
+    });
   });
 
   await loadAndRenderBody();

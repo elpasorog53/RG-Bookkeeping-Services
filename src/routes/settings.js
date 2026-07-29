@@ -233,4 +233,45 @@ router.post('/users/:id/deactivate', requireOwner, async (req, res, next) => {
   }
 });
 
+function feedUrlFor(token) {
+  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  return `${appUrl}/api/calendar-feed/${token}.ics`;
+}
+
+router.get('/calendar-feed-url', async (req, res, next) => {
+  try {
+    const { rows } = await query('SELECT calendar_feed_token FROM organizations WHERE id = $1', [req.orgId]);
+    let token = rows[0].calendar_feed_token;
+    if (!token) {
+      token = randomToken();
+      await query('UPDATE organizations SET calendar_feed_token = $1 WHERE id = $2', [token, req.orgId]);
+    }
+    res.json({ feedUrl: feedUrlFor(token) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Owner-only: rotating the token invalidates the old URL immediately,
+// useful if a feed link was ever shared somewhere it shouldn't have been.
+router.post('/calendar-feed-url/regenerate', requireOwner, async (req, res, next) => {
+  try {
+    const token = randomToken();
+    await query('UPDATE organizations SET calendar_feed_token = $1 WHERE id = $2', [token, req.orgId]);
+    await writeAudit(getPool(), {
+      orgId: req.orgId,
+      actorId: req.user.id,
+      action: 'settings.calendar_feed_token_regenerate',
+      recordType: 'organization',
+      recordId: req.orgId,
+      before: null,
+      after: null,
+      req,
+    });
+    res.json({ feedUrl: feedUrlFor(token) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

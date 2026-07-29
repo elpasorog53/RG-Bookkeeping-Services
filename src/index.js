@@ -12,6 +12,7 @@ import meRouter from './routes/me.js';
 import mediaRouter from './routes/media.js';
 import exportsRouter from './routes/exports.js';
 import auditRouter from './routes/audit.js';
+import calendarFeedRouter from './routes/calendar-feed.js';
 import { requireAuth, requireCsrf, requireOrg } from './lib/auth-middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,10 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // Public routes: onboarding/login/verify/reset live here, mounted before the
 // blanket authenticated /api gate below (section 27: public routes first).
 app.use('/api/auth', createAuthRouter());
+
+// Also public: calendar apps fetch this feed by plain HTTP GET with no
+// session, gated only by the secret token in the URL (see routes/calendar-feed.js).
+app.use('/api/calendar-feed', calendarFeedRouter);
 
 // Everything under /api past this point requires a valid session, a CSRF
 // header on non-GET requests, and a resolved org membership (org_id always
