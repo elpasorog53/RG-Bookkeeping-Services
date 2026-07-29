@@ -135,6 +135,29 @@ router.get('/', validateQuery(listQuerySchema), async (req, res, next) => {
   }
 });
 
+// Evergreen resurfacing: a post is "due" once reuse_interval_days have
+// elapsed since it was last reused (or, if never reused, since it was
+// published/created). Only published/skipped posts qualify -- a post that
+// hasn't been through the workflow yet has nothing to resurface.
+router.get('/evergreen/due', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM posts
+       WHERE org_id = $1 AND archived_at IS NULL AND is_evergreen = true
+         AND reuse_interval_days IS NOT NULL
+         AND status IN ('published', 'skipped')
+         AND COALESCE(last_reused_at, published_at, created_at)
+             <= now() - (reuse_interval_days::text || ' days')::interval
+       ORDER BY COALESCE(last_reused_at, published_at, created_at) ASC
+       LIMIT 100`,
+      [req.orgId]
+    );
+    res.json({ posts: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const { rows } = await query('SELECT * FROM posts WHERE id = $1 AND org_id = $2', [req.params.id, req.orgId]);

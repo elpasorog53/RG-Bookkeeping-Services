@@ -45,6 +45,10 @@ export async function render(root) {
         <h2>Needs review</h2>
         <div id="needs-review"><p class="empty-state">Loading&hellip;</p></div>
       </div>
+      <div class="card">
+        <h2>Evergreen due for reuse</h2>
+        <div id="evergreen-due"><p class="empty-state">Loading&hellip;</p></div>
+      </div>
     </div>
   `;
 
@@ -108,6 +112,41 @@ export async function render(root) {
       .join('');
   }
 
+  async function loadEvergreenDue() {
+    const el = document.getElementById('evergreen-due');
+    const { posts } = await api('/api/posts/evergreen/due');
+    if (posts.length === 0) {
+      el.innerHTML = '<p class="empty-state">Nothing due right now.</p>';
+      return;
+    }
+    el.innerHTML = posts
+      .map((p) => {
+        const anchor = new Date(p.last_reused_at || p.published_at || p.created_at);
+        const dueDate = new Date(anchor.getTime() + p.reuse_interval_days * 86400000);
+        const overdueDays = Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000));
+        return `
+        <div class="post-row">
+          <a href="#/editor/${p.id}" class="post-row-title">${escapeHtml(p.title)}</a>
+          <span class="status-pill">${overdueDays === 0 ? 'Due today' : `Due ${overdueDays}d ago`}</span>
+          <button class="btn secondary evergreen-reuse-btn" data-id="${p.id}">Reuse now</button>
+        </div>
+      `;
+      })
+      .join('');
+
+    el.querySelectorAll('.evergreen-reuse-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          const result = await api(`/api/posts/${btn.dataset.id}/reuse`, { method: 'POST' });
+          toast('New draft created');
+          window.location.hash = `#/editor/${result.post.id}`;
+        } catch (err) {
+          toast(err.message, { isError: true });
+        }
+      });
+    });
+  }
+
   async function loadWeekCounts() {
     const el = document.getElementById('week-counts');
     const today = new Date();
@@ -129,5 +168,5 @@ export async function render(root) {
     `;
   }
 
-  await Promise.all([loadWeekCounts(), loadNextUp(), loadNeedsReview()]);
+  await Promise.all([loadWeekCounts(), loadNextUp(), loadNeedsReview(), loadEvergreenDue()]);
 }
