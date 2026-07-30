@@ -164,9 +164,12 @@ Click any row to open it in the editor.
 
 ## 6. The Calendar
 
-Shows your **Scheduled/planned** posts either as a **Month** grid or a
-**List**. Drag a post chip onto a different day to reschedule it (or into
-the **Unscheduled** tray to clear its date) — no need to open the editor.
+Shows any post with a date, either as a **Month** grid or a **List**. Drag
+a post chip onto a different day to reschedule it (or into the
+**Unscheduled** tray to clear its date) — no need to open the editor.
+Idea and Draft posts appear faded ("ghosted") since they aren't firm
+commitments yet — only a **Scheduled** post is guaranteed to actually go
+out, and only Scheduled posts appear in the subscribed feed below.
 
 **Subscribing from your phone/computer calendar:** open the "Subscribe to
 this calendar" panel at the top, copy the link, then:
@@ -189,9 +192,17 @@ Use **Plan** to sanity-check a whole month at once, not just one post:
   Settings → Brand Voice ("Posting cadence target").
 - **Pillar mix this month** — a count of planned posts per pillar, so you
   can spot if one topic is crowding out the others.
+- **Planned but not yet scheduled** — posts that have a date but haven't
+  been through Ready → Scheduled yet. **This matters:** your calendar feed
+  and any subscribed Apple/Google Calendar only ever show posts with status
+  **Scheduled** — a dated Idea or Draft won't appear there until it's
+  actually scheduled. This list is your reminder of what still needs
+  finishing.
 - **Unscheduled ideas** — every Idea-status post with no date yet. Pick a
-  date and click **Plan it** to slot it straight into the month without
-  opening the full editor.
+  date and click **Plan it** to slot it into the month. This only assigns a
+  target date — it does **not** move the post to Scheduled, so it'll show
+  up in "Planned but not yet scheduled" above until you finish writing it
+  and click through to Scheduled yourself.
 
 Use the ← / → arrows to move between months.
 
