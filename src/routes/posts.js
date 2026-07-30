@@ -234,11 +234,36 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// If the caller didn't explicitly say whether this post needs review,
+// default it from the chosen pillar's requires_review flag -- otherwise
+// flagging a pillar as "requires review" in Settings had no actual effect
+// on posts created under it (the review gate in post-service.js only ever
+// checks the post's own needs_review, never the pillar's).
+async function pillarRequiresReview(pillarId, orgId) {
+  const { rows } = await query('SELECT requires_review FROM content_pillars WHERE id = $1 AND org_id = $2', [
+    pillarId,
+    orgId,
+  ]);
+  return rows.length > 0 ? rows[0].requires_review : null;
+}
+
 router.post('/', validateBody(createSchema), async (req, res, next) => {
   try {
     await validatePlatformKeys(req.body.platforms);
 
-    const fields = { ...req.body, org_id: req.orgId, created_by: req.user.id, updated_by: req.user.id };
+    const pillarDefaults = {};
+    if (!('needs_review' in req.body) && req.body.pillar_id) {
+      const requiresReview = await pillarRequiresReview(req.body.pillar_id, req.orgId);
+      if (requiresReview !== null) pillarDefaults.needs_review = requiresReview;
+    }
+
+    const fields = {
+      ...req.body,
+      ...pillarDefaults,
+      org_id: req.orgId,
+      created_by: req.user.id,
+      updated_by: req.user.id,
+    };
     const keys = Object.keys(fields);
     const columns = keys.join(', ');
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
@@ -296,6 +321,15 @@ router.put('/:id', validateBody(updateSchema), async (req, res, next) => {
     }
 
     if (body.platforms) await validatePlatformKeys(body.platforms);
+
+    // Only re-derive needs_review when the pillar itself is actually
+    // changing, and only if this same request didn't also set needs_review
+    // explicitly -- an unrelated resave (the editor PUTs the whole form on
+    // every autosave) must never silently flip a manually-chosen value.
+    if (body.pillar_id && body.pillar_id !== before.pillar_id && !('needs_review' in body)) {
+      const requiresReview = await pillarRequiresReview(body.pillar_id, req.orgId);
+      if (requiresReview !== null) body.needs_review = requiresReview;
+    }
 
     const autoPatch = autoTransitionForFieldChange(before, body) || {};
     const fields = { ...body, ...autoPatch, updated_by: req.user.id };

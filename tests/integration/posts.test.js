@@ -347,3 +347,76 @@ test('rejects an unknown/disabled platform key on create', async () => {
   const created = await client.post('/api/posts', { title: 'x', platforms: ['tiktok'] });
   assert.equal(created.status, 400);
 });
+
+async function setupOwnerWithPillars(orgName, email) {
+  const { orgId, userId } = await createOrgWithUser(pool, { orgName, email, displayName: 'Owner', role: 'OWNER' });
+  const client = createClient(baseUrl);
+  await loginAs(client, userId);
+
+  const { rows: reviewPillar } = await pool.query(
+    `INSERT INTO content_pillars (org_id, name, requires_review) VALUES ($1, 'Needs Sign-off', true) RETURNING id`,
+    [orgId]
+  );
+  const { rows: casualPillar } = await pool.query(
+    `INSERT INTO content_pillars (org_id, name, requires_review) VALUES ($1, 'Casual Updates', false) RETURNING id`,
+    [orgId]
+  );
+
+  return { client, reviewPillarId: reviewPillar[0].id, casualPillarId: casualPillar[0].id };
+}
+
+test('create defaults needs_review from the chosen pillar\'s requires_review flag', async () => {
+  const { client, reviewPillarId, casualPillarId } = await setupOwnerWithPillars('Pillar Review Org A', 'pillar-a@example.com');
+
+  const flagged = await client.post('/api/posts', { title: 'Tax deadline reminder', pillar_id: reviewPillarId });
+  assert.equal(flagged.status, 201);
+  assert.equal(flagged.data.post.needs_review, true, 'pillar requires review, so the post should be flagged too');
+
+  const casual = await client.post('/api/posts', { title: 'Fun office update', pillar_id: casualPillarId });
+  assert.equal(casual.status, 201);
+  assert.equal(casual.data.post.needs_review, false);
+
+  const noPillar = await client.post('/api/posts', { title: 'No pillar yet' });
+  assert.equal(noPillar.status, 201);
+  assert.equal(noPillar.data.post.needs_review, false, 'no pillar means nothing to default from');
+});
+
+test('create respects an explicit needs_review even when the pillar requires review', async () => {
+  const { client, reviewPillarId } = await setupOwnerWithPillars('Pillar Review Org B', 'pillar-b@example.com');
+
+  const created = await client.post('/api/posts', {
+    title: 'Owner already decided this is fine',
+    pillar_id: reviewPillarId,
+    needs_review: false,
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.post.needs_review, false, 'an explicit false must not be overridden by the pillar default');
+});
+
+test('update only re-derives needs_review when pillar_id itself changes, not on an unrelated resave', async () => {
+  const { client, reviewPillarId, casualPillarId } = await setupOwnerWithPillars('Pillar Review Org C', 'pillar-c@example.com');
+
+  const created = await client.post('/api/posts', { title: 'Untitled', pillar_id: casualPillarId });
+  assert.equal(created.data.post.needs_review, false);
+
+  // Owner manually flags it for review without touching the pillar.
+  const manuallyFlagged = await client.put(`/api/posts/${created.data.post.id}`, { needs_review: true });
+  assert.equal(manuallyFlagged.data.post.needs_review, true);
+
+  // An unrelated resave (e.g. autosave resubmitting the whole form, same pillar_id) must not clobber that.
+  const resaved = await client.put(`/api/posts/${created.data.post.id}`, {
+    title: 'Untitled v2',
+    pillar_id: casualPillarId,
+  });
+  assert.equal(resaved.data.post.needs_review, true, 'resubmitting the same pillar_id must not reset the manual flag');
+
+  // Owner turns it back off manually, still on the casual pillar.
+  const unflagged = await client.put(`/api/posts/${created.data.post.id}`, { needs_review: false });
+  assert.equal(unflagged.data.post.needs_review, false);
+
+  // Now actually switching to the review-required pillar (without setting needs_review in the same
+  // request) proves the pillar change itself re-derives it, rather than it just staying true from before.
+  const switched = await client.put(`/api/posts/${created.data.post.id}`, { pillar_id: reviewPillarId });
+  assert.equal(switched.status, 200);
+  assert.equal(switched.data.post.needs_review, true, 'switching to the review-required pillar should re-derive needs_review');
+});
