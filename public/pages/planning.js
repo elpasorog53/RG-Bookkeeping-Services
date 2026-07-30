@@ -17,6 +17,12 @@ function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
+const STATUS_LABELS = {
+  idea: 'Idea',
+  draft: 'Draft',
+  ready: 'Ready',
+};
+
 function startOfWeek(d) {
   const copy = new Date(d);
   copy.setDate(copy.getDate() - copy.getDay());
@@ -49,6 +55,15 @@ export async function render(root) {
     <div class="card">
       <h2>Pillar mix this month</h2>
       <div id="pillar-mix"></div>
+    </div>
+    <div class="card">
+      <h2>Planned but not yet scheduled</h2>
+      <p class="empty-state">
+        These have a date but haven't been through Ready &rarr; Scheduled yet &mdash;
+        until they are, they won't show up in your calendar feed or a subscribed
+        Apple/Google Calendar. Open one to finish and schedule it.
+      </p>
+      <div id="not-yet-scheduled"></div>
     </div>
     <div class="card">
       <h2>Unscheduled ideas</h2>
@@ -125,6 +140,24 @@ export async function render(root) {
     document.getElementById('pillar-mix').innerHTML =
       pillarRows.length === 0 ? '<p class="empty-state">Nothing planned this month yet.</p>' : pillarRows.join('');
 
+    const notYetScheduled = monthPosts.filter(
+      (p) => p.planned_date && !['scheduled', 'published', 'skipped'].includes(p.status)
+    );
+    document.getElementById('not-yet-scheduled').innerHTML =
+      notYetScheduled.length === 0
+        ? '<p class="empty-state">Everything with a date this month is Scheduled.</p>'
+        : notYetScheduled
+            .map(
+              (p) => `
+        <div class="post-row">
+          <a href="#/editor/${p.id}" class="post-row-title">${escapeHtml(p.title)}</a>
+          <span class="empty-state">${p.planned_date}</span>
+          <span class="status-pill">${STATUS_LABELS[p.status] || p.status}</span>
+        </div>
+      `
+            )
+            .join('');
+
     const unassignedIdeas = ideaPosts.filter((p) => !p.planned_date);
     const ideaBacklog = document.getElementById('idea-backlog');
     if (unassignedIdeas.length === 0) {
@@ -150,7 +183,7 @@ export async function render(root) {
           }
           try {
             await api(`/api/posts/${btn.dataset.id}`, { method: 'PUT', body: { planned_date: dateInput.value } });
-            toast('Added to the plan');
+            toast('Date assigned — finish writing it and move it to Scheduled so it shows on your calendar');
             await loadAndRender();
           } catch (err) {
             toast(err.message, { isError: true });

@@ -63,7 +63,10 @@ export async function render(root) {
   function chipHtml(post) {
     const pillar = post.pillar_id ? pillarsById.get(post.pillar_id) : null;
     const dot = pillar ? `<span class="pillar-dot" style="background:${escapeHtml(pillar.color || '#999')}"></span>` : '';
-    const ghosted = post.status === 'draft' ? ' chip-ghosted' : '';
+    // Idea and draft posts aren't firm commitments yet -- ghost both so a
+    // dated idea (e.g. from the Plan page's "Plan it" action) never looks
+    // identical to an actually-Scheduled post at a glance.
+    const ghosted = post.status === 'draft' || post.status === 'idea' ? ' chip-ghosted' : '';
     const struck = post.status === 'skipped' ? ' chip-struck' : '';
     const check = post.status === 'published' ? ' &#10003;' : '';
     const time = post.planned_time ? formatTime(post.planned_time) : '';
