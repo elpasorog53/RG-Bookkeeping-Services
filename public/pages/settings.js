@@ -76,6 +76,7 @@ export async function render(root, { session }) {
       <div class="form-field"><label>Contact info</label><input id="s-contact-info" value="${escapeHtml(b.contact_info || '')}" ${isOwner ? '' : 'disabled'} /></div>
       <div class="form-field"><label>Disclaimer text</label><textarea id="s-disclaimer-text" rows="2" ${isOwner ? '' : 'disabled'}>${escapeHtml(b.disclaimer_text || '')}</textarea></div>
       <div class="form-field"><label>Posting cadence target (posts/week)</label><input id="s-cadence-target" type="number" min="0" max="30" value="${b.posts_per_week_target ?? 2}" ${isOwner ? '' : 'disabled'} /></div>
+      <div class="form-field"><label>Calendar reminder (minutes before, 0 = off)</label><input id="s-calendar-reminder" type="number" min="0" max="2880" value="${b.calendar_reminder_minutes ?? 30}" ${isOwner ? '' : 'disabled'} /></div>
       ${isOwner ? '<button class="btn" id="btn-save-brand">Save</button>' : '<p class="empty-state">Only the Owner can edit brand settings.</p>'}
     `;
     if (isOwner) {
@@ -94,6 +95,7 @@ export async function render(root, { session }) {
               contact_info: document.getElementById('s-contact-info').value,
               disclaimer_text: document.getElementById('s-disclaimer-text').value,
               posts_per_week_target: Number(document.getElementById('s-cadence-target').value),
+              calendar_reminder_minutes: Number(document.getElementById('s-calendar-reminder').value),
             },
           });
           toast('Saved');

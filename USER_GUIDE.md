@@ -180,6 +180,12 @@ this calendar" panel at the top, copy the link, then:
 Your scheduled posts then show up automatically as calendar events and stay
 in sync as you reschedule things in the app.
 
+**Reminders:** each event includes a built-in alert, since read-only
+subscribed calendars generally won't let you add one yourself in Apple or
+Google Calendar. How far ahead it fires is set in Settings → Brand Voice
+("Calendar reminder") — 30 minutes by default, 0 turns it off. It applies
+to the whole feed (every subscriber), not per-person.
+
 ---
 
 ## 7. The Plan page (monthly planning)

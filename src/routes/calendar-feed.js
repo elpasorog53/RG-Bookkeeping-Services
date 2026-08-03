@@ -11,7 +11,9 @@ const router = Router();
 router.get('/:token.ics', async (req, res, next) => {
   try {
     const { rows: orgRows } = await query(
-      'SELECT id, name, timezone FROM organizations WHERE calendar_feed_token = $1',
+      `SELECT o.id, o.name, o.timezone, COALESCE(b.calendar_reminder_minutes, 30) AS calendar_reminder_minutes
+       FROM organizations o LEFT JOIN brand_settings b ON b.org_id = o.id
+       WHERE o.calendar_feed_token = $1`,
       [req.params.token]
     );
     if (orgRows.length === 0) return res.status(404).send('Not found');
@@ -26,7 +28,12 @@ router.get('/:token.ics', async (req, res, next) => {
       [org.id]
     );
 
-    const ics = buildCalendarFeed({ orgName: org.name, timezone: org.timezone, posts });
+    const ics = buildCalendarFeed({
+      orgName: org.name,
+      timezone: org.timezone,
+      posts,
+      reminderMinutes: org.calendar_reminder_minutes,
+    });
     res.set('Content-Type', 'text/calendar; charset=utf-8');
     res.set('Cache-Control', 'no-cache');
     res.set('Content-Disposition', 'inline; filename="rg-social-planner.ics"');

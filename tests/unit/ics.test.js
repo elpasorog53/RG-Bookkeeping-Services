@@ -67,6 +67,38 @@ test('buildCalendarFeed escapes commas, semicolons, and newlines in text fields'
   assert.match(ics, /Line one\.\\nLine two\\, with\\; punctuation\./);
 });
 
+test('buildCalendarFeed omits VALARM when reminderMinutes is 0 (the default)', () => {
+  const posts = [
+    {
+      id: 'noalarm-1',
+      title: 'No reminder',
+      caption_main: '',
+      platforms: [],
+      planned_date: '2026-08-03',
+      planned_time: '09:00:00',
+      updated_at: '2026-07-29T16:15:22.810Z',
+    },
+  ];
+  const ics = buildCalendarFeed({ orgName: 'Org', timezone: 'America/New_York', posts });
+  assert.doesNotMatch(ics, /BEGIN:VALARM/);
+});
+
+test('buildCalendarFeed adds a VALARM that triggers reminderMinutes before DTSTART', () => {
+  const posts = [
+    {
+      id: 'alarm-1',
+      title: 'Remind me',
+      caption_main: '',
+      platforms: [],
+      planned_date: '2026-08-03',
+      planned_time: '09:00:00',
+      updated_at: '2026-07-29T16:15:22.810Z',
+    },
+  ];
+  const ics = buildCalendarFeed({ orgName: 'Org', timezone: 'America/New_York', posts, reminderMinutes: 30 });
+  assert.match(ics, /BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Remind me\r\nTRIGGER:-PT30M\r\nEND:VALARM/);
+});
+
 test('buildCalendarFeed folds long lines at 75 octets per RFC 5545', () => {
   const longTitle = 'A'.repeat(120);
   const posts = [

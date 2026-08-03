@@ -65,7 +65,7 @@ function foldLine(line) {
   return result;
 }
 
-export function buildCalendarFeed({ orgName, timezone, posts }) {
+export function buildCalendarFeed({ orgName, timezone, posts, reminderMinutes = 0 }) {
   const now = toIcsUtc(new Date());
   const lines = [
     'BEGIN:VCALENDAR',
@@ -98,9 +98,18 @@ export function buildCalendarFeed({ orgName, timezone, posts }) {
       `DTEND:${toIcsUtc(end)}`,
       `LAST-MODIFIED:${toIcsUtc(new Date(post.updated_at))}`,
       foldLine(`SUMMARY:Post: ${escapeText(post.title)}`),
-      foldLine(`DESCRIPTION:${escapeText(description)}`),
-      'END:VEVENT'
+      foldLine(`DESCRIPTION:${escapeText(description)}`)
     );
+    if (reminderMinutes > 0) {
+      lines.push(
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        foldLine(`DESCRIPTION:${escapeText(post.title)}`),
+        `TRIGGER:-PT${reminderMinutes}M`,
+        'END:VALARM'
+      );
+    }
+    lines.push('END:VEVENT');
   }
 
   lines.push('END:VCALENDAR');

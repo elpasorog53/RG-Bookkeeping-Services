@@ -27,6 +27,7 @@ const brandSettingsSchema = z.object({
   post_length_pref: z.string().max(200).optional().nullable(),
   example_posts: z.array(z.string()).max(5).optional(),
   posts_per_week_target: z.number().int().min(0).max(30).optional(),
+  calendar_reminder_minutes: z.number().int().min(0).max(2880).optional(),
 }).partial();
 
 const platformUpdateSchema = z.object({
